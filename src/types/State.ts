@@ -20,6 +20,17 @@ export interface UI {
   isDefensiveReductionsExpanded: boolean;
 }
 
+export type SequenceStepCondition =
+  | { type: 'attacks'; count: number }
+  | { type: 'hp_threshold'; hp: number }
+  | { type: 'kill' };
+
+export interface AttackSequenceStep {
+  loadoutIndex: number;
+  useSpec: boolean;
+  condition: SequenceStepCondition;
+}
+
 /**
  * User preferences that we store in the user's localStorage. You should not add any keys here that shouldn't be
  * saved locally and persist between sessions.
@@ -34,6 +45,8 @@ export interface Preferences {
   hitDistsHideZeros: boolean; // legacy name
   hitDistShowSpec: boolean;
   resultsExpanded: boolean;
+  attackSequenceEnabled: boolean;
+  attackSequence: AttackSequenceStep[];
 }
 
 export interface ChartEntry {

@@ -233,6 +233,8 @@ class GlobalState implements State {
     hitDistsHideZeros: false,
     hitDistShowSpec: false,
     resultsExpanded: false,
+    attackSequenceEnabled: false,
+    attackSequence: [],
   };
 
   calc: Calculator = {

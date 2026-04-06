@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(xargs grep:*)",
+      "Bash(node -e \"const icons = require\\(''@tabler/icons-react''\\); const matches = Object.keys\\(icons\\).filter\\(k => k.match\\(/Icon\\(List|Repeat|Route|Swords|Sequence|Steps|Stack|Layers|Numbers|Sort\\)/i\\)\\); console.log\\(matches.join\\(''\\\\n''\\)\\)\")",
+      "Bash(npx tsc:*)",
+      "Bash(npm run:*)",
+      "Bash(\"/c/Program Files/nodejs/npm.cmd\" run type-check)",
+      "Bash(\"/c/Program Files/nodejs/npm.cmd\" run)",
+      "Bash(\"/c/Program Files/nodejs/npm.cmd\" run build)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" \"/c/Program Files/nodejs/node_modules/npm/bin/npm-cli.js\" run build)",
+      "Bash(cmd.exe /c \"npm run build 2>&1\")",
+      "Bash(cmd.exe /c \"npm run build\")",
+      "Bash(cmd.exe /c \"cd C:\\\\Users\\\\Ryan\\\\osrs-dps-calc && npx tsc --noEmit 2>&1\")",
+      "Bash(cmd.exe /c \"cd C:\\\\Users\\\\Ryan\\\\osrs-dps-calc && node node_modules/.bin/tsc --noEmit 2>&1\")",
+      "Bash(cmd.exe /c \"cd C:\\\\Users\\\\Ryan\\\\osrs-dps-calc && node node_modules/.bin/tsc --noEmit > tsc_output.txt 2>&1 && echo SUCCESS || echo FAILED\")",
+      "Bash(/c/Program Files/nodejs/node.exe node_modules/.bin/tsc --noEmit)",
+      "Bash(/c/Program Files/nodejs/node.exe /c/Users/Ryan/osrs-dps-calc/node_modules/typescript/bin/tsc --noEmit)"
+    ]
+  }
+}
