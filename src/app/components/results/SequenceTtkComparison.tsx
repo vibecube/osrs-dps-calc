@@ -24,6 +24,8 @@ import { IconAlertTriangle, IconSwords } from '@tabler/icons-react';
 
 const SECONDS_PER_TICK = 0.6;
 
+const LINE_COLOURS = ['cyan', 'yellow', 'lime', 'orange', 'pink', '#8B9BE8'];
+
 enum XAxisType {
   TICKS,
   SECONDS,
@@ -77,38 +79,58 @@ const CustomTooltip: React.FC<CustomTooltipProps> = ({
   return null;
 };
 
-const LINE_COLOUR = '#f97316'; // orange-500 to match the sequence tab indicator
-
 const SequenceTtkComparison: React.FC = observer(() => {
   const store = useStore();
-  const { showSequenceTtkComparison, attackSequenceEnabled, attackSequence: sequence } = store.prefs;
-  const sequenceTtkDist = toJS(store.calc.sequenceTtkDist);
+  const {
+    showSequenceTtkComparison, attackSequenceEnabled, attackSequenceLoadouts,
+  } = store.prefs;
+  const sequenceTtkDists = toJS(store.calc.sequenceTtkDists);
 
   const [xAxisType, setXAxisType] = useState<{ label: string, value: XAxisType } | null | undefined>(XAxisOptions[0]);
 
   const infiniteHealth = useMemo(() => INFINITE_HEALTH_MONSTERS.includes(store.monster.id), [store.monster.id]);
-  const hasKillStep = useMemo(() => sequence.some((s) => s.condition.type === 'kill'), [sequence]);
+  const hasKillStep = useMemo(
+    () => attackSequenceLoadouts.some((sl) => sl.players.some((seq) => seq.some((s) => s.condition.type === 'kill'))),
+    [attackSequenceLoadouts],
+  );
+  const hasAnyStep = useMemo(
+    () => attackSequenceLoadouts.some((sl) => sl.players.some((seq) => seq.length > 0)),
+    [attackSequenceLoadouts],
+  );
 
   const data = useMemo(() => {
-    if (!sequenceTtkDist || sequenceTtkDist.size === 0) return [];
+    if (!sequenceTtkDists || sequenceTtkDists.length === 0) return [];
+    if (sequenceTtkDists.every((d) => !d || d.size === 0)) return [];
 
     const xLabeller = xAxisType?.value === XAxisType.SECONDS
       ? (x: number) => (x * SECONDS_PER_TICK).toFixed(1)
       : (x: number) => x.toString();
 
-    const uniqueTtks = max(sequenceTtkDist.keys()) || 0;
-    const lines: { name: string; 'Attack Sequence': string }[] = [];
-    let runningTotal = 0;
+    // Find the max tick across all dists
+    const maxTick = sequenceTtkDists.reduce((acc, d) => {
+      if (!d) return acc;
+      return Math.max(acc, max(d.keys()) || 0);
+    }, 0);
 
-    for (let ttk = 0; ttk <= uniqueTtks; ttk++) {
-      const v = sequenceTtkDist.get(ttk);
-      if (v) runningTotal += v;
-      lines.push({ name: xLabeller(ttk), 'Attack Sequence': (runningTotal * 100).toFixed(2) });
+    const lines: Record<string, string>[] = [];
+    const runningTotals = sequenceTtkDists.map(() => 0);
+
+    for (let ttk = 0; ttk <= maxTick; ttk++) {
+      const entry: Record<string, string> = { name: xLabeller(ttk) };
+      for (let i = 0; i < sequenceTtkDists.length; i++) {
+        const d = sequenceTtkDists[i];
+        if (d) {
+          const v = d.get(ttk);
+          if (v) runningTotals[i] += v;
+          entry[attackSequenceLoadouts[i]?.name ?? `Seq ${i + 1}`] = (runningTotals[i] * 100).toFixed(2);
+        }
+      }
+      lines.push(entry);
     }
     return lines;
-  }, [sequenceTtkDist, xAxisType]);
+  }, [sequenceTtkDists, attackSequenceLoadouts, xAxisType]);
 
-  const showChart = attackSequenceEnabled && !infiniteHealth && hasKillStep && sequenceTtkDist && sequenceTtkDist.size > 0;
+  const showChart = attackSequenceEnabled && !infiniteHealth && hasKillStep && sequenceTtkDists && sequenceTtkDists.some((d) => d && d.size > 0);
 
   return (
     <SectionAccordion
@@ -139,19 +161,19 @@ const SequenceTtkComparison: React.FC = observer(() => {
         </div>
       )}
 
-      {attackSequenceEnabled && !infiniteHealth && sequence.length === 0 && (
+      {attackSequenceEnabled && !infiniteHealth && !hasAnyStep && (
         <div className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
           Add steps to your attack sequence to see a TTK distribution.
         </div>
       )}
 
-      {attackSequenceEnabled && !infiniteHealth && sequence.length > 0 && !hasKillStep && (
+      {attackSequenceEnabled && !infiniteHealth && hasAnyStep && !hasKillStep && (
         <div className="px-6 py-4 text-sm text-yellow-600 dark:text-yellow-400">
           Add a final &quot;Until killed&quot; step to your sequence to see a TTK distribution.
         </div>
       )}
 
-      {attackSequenceEnabled && !infiniteHealth && hasKillStep && !sequenceTtkDist && (
+      {attackSequenceEnabled && !infiniteHealth && hasKillStep && !sequenceTtkDists && (
         <div className="px-6 py-4 text-sm text-gray-500 dark:text-gray-400">
           Computing…
         </div>
@@ -183,14 +205,19 @@ const SequenceTtkComparison: React.FC = observer(() => {
                 content={(props) => <CustomTooltip {...props} xAxisOption={xAxisType || XAxisOptions[0]} />}
               />
               <Legend wrapperStyle={{ fontSize: '.9em', top: 0 }} />
-              <Line
-                isAnimationActive={false}
-                type="monotone"
-                dataKey="Attack Sequence"
-                stroke={LINE_COLOUR}
-                dot={false}
-                connectNulls
-              />
+              {attackSequenceLoadouts.map((sl, i) => (
+                sequenceTtkDists?.[i] && sequenceTtkDists[i].size > 0 ? (
+                  <Line
+                    key={sl.name}
+                    isAnimationActive={false}
+                    type="monotone"
+                    dataKey={sl.name}
+                    stroke={LINE_COLOURS[i % LINE_COLOURS.length]}
+                    dot={false}
+                    connectNulls
+                  />
+                ) : null
+              ))}
             </LineChart>
           </ResponsiveContainer>
           <div className="my-4 flex gap-4 max-w-lg m-auto dark:text-white">

@@ -14,6 +14,7 @@ import NPCVsPlayerCalc from '@/lib/NPCVsPlayerCalc';
 import PlayerVsNPCCalc from '@/lib/PlayerVsNPCCalc';
 import Comparator from '@/lib/Comparator';
 import { ttkDist } from '@/worker/ttkWorker';
+import { sequenceTtkDist } from '@/worker/sequenceTtkWorker';
 import { range } from 'd3-array';
 import { DeferredPromise } from '@/utils';
 import { NUMBER_OF_LOADOUTS } from '@/lib/constants';
@@ -242,6 +243,11 @@ self.onmessage = async (evt: MessageEvent<string>) => {
 
       case WorkerRequestType.COMPUTE_TTK_PARALLEL: {
         res.payload = await ttkDistParallel(data, req);
+        break;
+      }
+
+      case WorkerRequestType.COMPUTE_SEQUENCE_TTK: {
+        res.payload = await sequenceTtkDist(data, req);
         break;
       }
 

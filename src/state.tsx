@@ -234,7 +234,10 @@ class GlobalState implements State {
     hitDistShowSpec: false,
     resultsExpanded: false,
     attackSequenceEnabled: false,
-    attackSequence: [],
+    attackSequenceLoadouts: [{ name: 'Sequence 1', players: [[]], activePlayer: 0 }],
+    attackSequenceActiveLoadout: 0,
+    attackSequenceTargetTtkSeconds: 60,
+    showSequenceTtkComparison: false,
   };
 
   calc: Calculator = {
@@ -437,6 +440,10 @@ class GlobalState implements State {
 
   updateCalcTtkDist(loadoutIx: number, ttkDist: PlayerVsNPCCalculatedLoadout['ttkDist']) {
     this.calc.loadouts[loadoutIx].ttkDist = ttkDist;
+  }
+
+  updateCalcSequenceTtkDists(dists: Map<number, number>[] | undefined) {
+    this.calc.sequenceTtkDists = dists;
   }
 
   async loadShortlink(linkId: string) {
@@ -811,6 +818,7 @@ class GlobalState implements State {
     const calculatedLoadouts: CalculatedLoadout[] = [];
     this.loadouts.forEach(() => calculatedLoadouts.push(EMPTY_CALC_LOADOUT));
     this.calc.loadouts = calculatedLoadouts;
+    this.calc.sequenceTtkDists = undefined;
 
     const data: Extract<ComputeBasicRequest['data'], ComputeReverseRequest['data']> = {
       loadouts: toJS(this.loadouts),
@@ -849,6 +857,30 @@ class GlobalState implements State {
           for (const [ix, loadout] of resp.payload.entries()) {
             this.updateCalcTtkDist(ix, loadout.ttkDist);
           }
+        })(),
+      );
+    }
+
+    const seqLoadouts = this.prefs.attackSequenceLoadouts;
+    const hasKillStep = seqLoadouts.some((sl) => sl.players.some((seq) => seq.some((s) => s.condition.type === 'kill')));
+    const hasAnyStep = seqLoadouts.some((sl) => sl.players.some((seq) => seq.length > 0));
+    if (
+      this.prefs.attackSequenceEnabled
+      && hasAnyStep
+      && hasKillStep
+      && !INFINITE_HEALTH_MONSTERS.includes(this.monster.id)
+    ) {
+      promises.push(
+        (async () => {
+          const resp = await this.calcWorker.do({
+            type: WorkerRequestType.COMPUTE_SEQUENCE_TTK,
+            data: {
+              sequenceLoadouts: toJS(seqLoadouts),
+              loadouts: toJS(this.loadouts),
+              monster: toJS(this.monster),
+            },
+          });
+          this.updateCalcSequenceTtkDists(resp.payload);
         })(),
       );
     }

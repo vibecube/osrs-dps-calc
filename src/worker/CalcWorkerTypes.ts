@@ -1,6 +1,6 @@
 import { Player } from '@/types/Player';
 import { Monster } from '@/types/Monster';
-import { NPCVsPlayerCalculatedLoadout, PlayerVsNPCCalculatedLoadout } from '@/types/State';
+import { AttackSequenceLoadout, NPCVsPlayerCalculatedLoadout, PlayerVsNPCCalculatedLoadout } from '@/types/State';
 import { CalcOpts } from '@/lib/BaseCalc';
 import {
   CompareResult, CompareXAxis, CompareYAxis,
@@ -16,6 +16,7 @@ export enum WorkerRequestType {
   COMPUTE_TTK_PARALLEL,
   COMPUTE_TTK,
   COMPARE,
+  COMPUTE_SEQUENCE_TTK,
 }
 
 export interface WorkerRequest<T extends WorkerRequestType> {
@@ -68,12 +69,21 @@ export interface TtkRequestParallel extends WorkerRequest<WorkerRequestType.COMP
   data: TtkRequest['data']
 }
 
+export interface SequenceTtkRequest extends WorkerRequest<WorkerRequestType.COMPUTE_SEQUENCE_TTK> {
+  data: {
+    sequenceLoadouts: AttackSequenceLoadout[],
+    loadouts: Player[],
+    monster: Monster,
+  }
+}
+
 export type CalcRequestsUnion =
   ComputeBasicRequest |
   ComputeReverseRequest |
   CompareRequest |
   TtkRequest |
-  TtkRequestParallel;
+  TtkRequestParallel |
+  SequenceTtkRequest;
 
 /**
  * Responses
@@ -106,12 +116,17 @@ export interface TtkResponseParallel extends WorkerResponse<WorkerRequestType.CO
   payload: TtkResponse['payload'],
 }
 
+export interface SequenceTtkResponse extends WorkerResponse<WorkerRequestType.COMPUTE_SEQUENCE_TTK> {
+  payload: Map<number, number>[],
+}
+
 export type CalcResponsesUnion =
   ComputeBasicResponse |
   ComputeReverseResponse |
   CompareResponse |
   TtkResponse |
-  TtkResponseParallel;
+  TtkResponseParallel |
+  SequenceTtkResponse;
 export type CalcResponse<T extends WorkerRequestType> = CalcResponsesUnion & { type: T };
 
 export type Handler<T extends WorkerRequestType> = (data: Extract<CalcRequestsUnion, { type: T }>['data'], rawRequest: CalcRequestsUnion) => Promise<CalcResponse<T>['payload']>;

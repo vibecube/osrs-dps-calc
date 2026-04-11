@@ -13,6 +13,7 @@ import { IReactionPublic, reaction, toJS } from 'mobx';
 import InitialLoad from '@/app/components/InitialLoad';
 import LoadoutComparison from '@/app/components/results/LoadoutComparison';
 import TtkComparison from '@/app/components/results/TtkComparison';
+import SequenceTtkComparison from '@/app/components/results/SequenceTtkComparison';
 import ShareModal from '@/app/components/ShareModal';
 import DebugPanels from '@/app/components/results/DebugPanels';
 import { IconAlertTriangle } from '@tabler/icons-react';
@@ -84,6 +85,8 @@ const Home: NextPage = observer(() => {
       () => store.prefs.showTtkComparison,
       () => store.prefs.showNPCVersusPlayerResults,
       () => store.prefs.hitDistsHideZeros,
+      () => store.prefs.attackSequenceEnabled,
+      () => toJS(store.prefs.attackSequenceLoadouts),
     ];
     const reactions = triggers.map((t) => reaction(t, recompute, { fireImmediately: true }));
 
@@ -125,6 +128,7 @@ const Home: NextPage = observer(() => {
           <LoadoutComparison />
         </CalcProvider>
         <TtkComparison />
+        <SequenceTtkComparison />
         <NPCVersusPlayerResultsContainer />
         <DebugPanels />
       </div>

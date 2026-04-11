@@ -1,5 +1,5 @@
 import { PartialDeep } from 'type-fest';
-import { Player } from '@/types/Player';
+import { EquipmentPiece, Player } from '@/types/Player';
 import { Monster } from '@/types/Monster';
 import UserIssueType from '@/enums/UserIssueType';
 import { DetailEntry } from '@/lib/CalcDetails';
@@ -29,6 +29,16 @@ export interface AttackSequenceStep {
   loadoutIndex: number;
   useSpec: boolean;
   condition: SequenceStepCondition;
+  /** When set, overrides the weapon slot from the referenced loadout for this step only. */
+  weaponOverride?: EquipmentPiece | null;
+}
+
+export interface AttackSequenceLoadout {
+  name: string;
+  /** Each entry is one "player" in the simultaneous group. */
+  players: AttackSequenceStep[][];
+  /** Index of the currently-viewed player tab within this loadout. */
+  activePlayer: number;
 }
 
 /**
@@ -46,7 +56,10 @@ export interface Preferences {
   hitDistShowSpec: boolean;
   resultsExpanded: boolean;
   attackSequenceEnabled: boolean;
-  attackSequence: AttackSequenceStep[];
+  attackSequenceLoadouts: AttackSequenceLoadout[];
+  attackSequenceActiveLoadout: number;
+  attackSequenceTargetTtkSeconds: number;
+  showSequenceTtkComparison: boolean;
 }
 
 export interface ChartEntry {
@@ -102,7 +115,8 @@ export interface NPCVsPlayerCalculatedLoadout extends CalculatedLoadout {
 }
 
 export interface Calculator {
-  loadouts: (PlayerVsNPCCalculatedLoadout & NPCVsPlayerCalculatedLoadout)[]
+  loadouts: (PlayerVsNPCCalculatedLoadout & NPCVsPlayerCalculatedLoadout)[];
+  sequenceTtkDists?: Map<number, number>[];
 }
 
 /**
