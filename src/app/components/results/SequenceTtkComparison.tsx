@@ -4,6 +4,7 @@ import {
   Legend,
   Line,
   LineChart,
+  ReferenceLine,
   ResponsiveContainer,
   Tooltip,
   TooltipProps,
@@ -25,6 +26,7 @@ import { IconAlertTriangle, IconSwords } from '@tabler/icons-react';
 const SECONDS_PER_TICK = 0.6;
 
 const LINE_COLOURS = ['cyan', 'yellow', 'lime', 'orange', 'pink', '#8B9BE8'];
+const MONSTER_SEG_COLOURS = ['#ff6b6b', '#4ecdc4', '#a8e6cf', '#ffd93d', '#c44dff', '#ff9f43'];
 
 enum XAxisType {
   TICKS,
@@ -85,18 +87,35 @@ const SequenceTtkComparison: React.FC = observer(() => {
     showSequenceTtkComparison, attackSequenceEnabled, attackSequenceLoadouts,
   } = store.prefs;
   const sequenceTtkDists = toJS(store.calc.sequenceTtkDists);
+  const sequenceMonsterKillTicks = toJS(store.calc.sequenceMonsterKillTicks);
 
   const [xAxisType, setXAxisType] = useState<{ label: string, value: XAxisType } | null | undefined>(XAxisOptions[0]);
+  const [tickMin, setTickMin] = useState<number | ''>('');
+  const [tickMax, setTickMax] = useState<number | ''>('');
 
   const infiniteHealth = useMemo(() => INFINITE_HEALTH_MONSTERS.includes(store.monster.id), [store.monster.id]);
   const hasKillStep = useMemo(
-    () => attackSequenceLoadouts.some((sl) => sl.players.some((seq) => seq.some((s) => s.condition.type === 'kill'))),
+    () => attackSequenceLoadouts.some((sl) => sl.playerSteps?.flat(2).some((s) => s.condition.type === 'kill')),
     [attackSequenceLoadouts],
   );
   const hasAnyStep = useMemo(
-    () => attackSequenceLoadouts.some((sl) => sl.players.some((seq) => seq.length > 0)),
+    () => attackSequenceLoadouts.some((sl) => (sl.playerSteps?.flat(2).length ?? 0) > 0),
     [attackSequenceLoadouts],
   );
+
+  const referenceLines = useMemo(() => {
+    if (!sequenceMonsterKillTicks) return [];
+    const lines: Array<{ loadoutIdx: number; monsterIdx: number; tick: number }> = [];
+    for (let li = 0; li < sequenceMonsterKillTicks.length; li++) {
+      const ticks = sequenceMonsterKillTicks[li];
+      if (!ticks) continue;
+      // All monsters except the last (last kill = sequence end = TTK itself)
+      for (let mi = 0; mi < ticks.length - 1; mi++) {
+        lines.push({ loadoutIdx: li, monsterIdx: mi, tick: ticks[mi] });
+      }
+    }
+    return lines;
+  }, [sequenceMonsterKillTicks]);
 
   const data = useMemo(() => {
     if (!sequenceTtkDists || sequenceTtkDists.length === 0) return [];
@@ -115,7 +134,18 @@ const SequenceTtkComparison: React.FC = observer(() => {
     const lines: Record<string, string>[] = [];
     const runningTotals = sequenceTtkDists.map(() => 0);
 
-    for (let ttk = 0; ttk <= maxTick; ttk++) {
+    const rangeMin = typeof tickMin === 'number' ? Math.max(0, tickMin) : 0;
+    const rangeMax = typeof tickMax === 'number' ? Math.min(tickMax, maxTick) : maxTick;
+
+    // Accumulate probability mass up to rangeMin so CDF values are correct within the window.
+    for (let ttk = 0; ttk < rangeMin; ttk++) {
+      for (let i = 0; i < sequenceTtkDists.length; i++) {
+        const d = sequenceTtkDists[i];
+        if (d) { const v = d.get(ttk); if (v) runningTotals[i] += v; }
+      }
+    }
+
+    for (let ttk = rangeMin; ttk <= rangeMax; ttk++) {
       const entry: Record<string, string> = { name: xLabeller(ttk) };
       for (let i = 0; i < sequenceTtkDists.length; i++) {
         const d = sequenceTtkDists[i];
@@ -128,7 +158,7 @@ const SequenceTtkComparison: React.FC = observer(() => {
       lines.push(entry);
     }
     return lines;
-  }, [sequenceTtkDists, attackSequenceLoadouts, xAxisType]);
+  }, [sequenceTtkDists, attackSequenceLoadouts, xAxisType, tickMin, tickMax]);
 
   const showChart = attackSequenceEnabled && !infiniteHealth && hasKillStep && sequenceTtkDists && sequenceTtkDists.some((d) => d && d.size > 0);
 
@@ -218,9 +248,45 @@ const SequenceTtkComparison: React.FC = observer(() => {
                   />
                 ) : null
               ))}
+              {referenceLines.map(({ loadoutIdx, monsterIdx, tick }) => {
+                const xVal = xAxisType?.value === XAxisType.SECONDS
+                  ? (tick * SECONDS_PER_TICK).toFixed(1)
+                  : tick.toString();
+                const color = MONSTER_SEG_COLOURS[monsterIdx % MONSTER_SEG_COLOURS.length];
+                const label = referenceLines.filter((r) => r.monsterIdx === monsterIdx).length > 1
+                  ? `S${loadoutIdx + 1}:M${monsterIdx + 1}`
+                  : `M${monsterIdx + 1}`;
+                return (
+                  <ReferenceLine
+                    key={`ref-${loadoutIdx}-${monsterIdx}`}
+                    x={xVal}
+                    stroke={color}
+                    strokeDasharray="4 4"
+                    strokeWidth={1.5}
+                    label={{
+                      value: label, position: 'top', fontSize: 10, fill: color,
+                    }}
+                  />
+                );
+              })}
             </LineChart>
           </ResponsiveContainer>
-          <div className="my-4 flex gap-4 max-w-lg m-auto dark:text-white">
+          {referenceLines.length > 0 && (
+            <div className="mt-2 mb-1 flex flex-wrap gap-3 justify-center text-xs dark:text-white">
+              {Array.from(new Set(referenceLines.map((r) => r.monsterIdx))).map((mi) => (
+                <div key={mi} className="flex items-center gap-1">
+                  <div
+                    className="w-5 border-t-2 border-dashed"
+                    style={{ borderColor: MONSTER_SEG_COLOURS[mi % MONSTER_SEG_COLOURS.length] }}
+                  />
+                  <span style={{ color: MONSTER_SEG_COLOURS[mi % MONSTER_SEG_COLOURS.length] }}>
+                    {`M${mi + 1} killed`}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="my-4 flex gap-4 flex-wrap max-w-lg m-auto dark:text-white">
             <div className="basis-full md:basis-1/2">
               <h3 className="font-serif font-bold mb-2">X axis</h3>
               <Select
@@ -229,6 +295,28 @@ const SequenceTtkComparison: React.FC = observer(() => {
                 value={xAxisType || undefined}
                 onSelectedItemChange={(i) => setXAxisType(i)}
               />
+            </div>
+            <div className="basis-full md:basis-1/2">
+              <h3 className="font-serif font-bold mb-2">Tick range</h3>
+              <div className="flex items-center gap-2">
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="Min"
+                  value={tickMin}
+                  onChange={(e) => setTickMin(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-20 px-2 py-1 text-sm rounded border border-body-300 dark:border-dark-300 bg-body-100 dark:bg-dark-400 text-gray-800 dark:text-white outline-none"
+                />
+                <span className="text-gray-400">–</span>
+                <input
+                  type="number"
+                  min={0}
+                  placeholder="Max"
+                  value={tickMax}
+                  onChange={(e) => setTickMax(e.target.value === '' ? '' : Number(e.target.value))}
+                  className="w-20 px-2 py-1 text-sm rounded border border-body-300 dark:border-dark-300 bg-body-100 dark:bg-dark-400 text-gray-800 dark:text-white outline-none"
+                />
+              </div>
             </div>
           </div>
         </div>

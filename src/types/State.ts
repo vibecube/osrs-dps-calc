@@ -33,12 +33,33 @@ export interface AttackSequenceStep {
   weaponOverride?: EquipmentPiece | null;
 }
 
+/** One monster slot in a multi-monster sequence. */
+export interface SequenceMonster {
+  /** ID matching an entry in availableMonsters (-1 = custom monster). */
+  monsterId: number;
+  /** Override starting HP. Undefined = full HP from the monster definition. */
+  startingHp?: number;
+}
+
 export interface AttackSequenceLoadout {
   name: string;
-  /** Each entry is one "player" in the simultaneous group. */
-  players: AttackSequenceStep[][];
+  /** Ordered list of monsters to fight sequentially. */
+  monsters: SequenceMonster[];
+  /**
+   * [playerIdx][monsterIdx] = steps for that player against that monster.
+   * Invariant: playerSteps.length === number of players,
+   *            playerSteps[pi].length === monsters.length.
+   */
+  playerSteps: AttackSequenceStep[][][];
   /** Index of the currently-viewed player tab within this loadout. */
   activePlayer: number;
+  /** Index of the monster section currently focused in the UI. */
+  activeMonster: number;
+  /**
+   * @deprecated Legacy field present only in old saved data — used during migration.
+   * Never written by new code.
+   */
+  players?: AttackSequenceStep[][];
 }
 
 /**
@@ -114,9 +135,28 @@ export interface NPCVsPlayerCalculatedLoadout extends CalculatedLoadout {
   avgDmgTaken?: number,
 }
 
+/** One weapon swing recorded during a single debug trace run of the sequence simulation. */
+export interface SequenceSwingEvent {
+  tick: number;
+  playerIdx: number;
+  monsterIdx: number;
+  weaponName: string;
+  damage: number;
+  hpBefore: number;
+  hpAfter: number;
+  defBefore: number;
+  defAfter: number;
+  /** 'attacks' = fixed-count step; 'kill' = open-ended kill/threshold step */
+  phase: 'attacks' | 'kill';
+  isKill: boolean;
+}
+
 export interface Calculator {
   loadouts: (PlayerVsNPCCalculatedLoadout & NPCVsPlayerCalculatedLoadout)[];
   sequenceTtkDists?: Map<number, number>[];
+  sequenceDebugTrace?: SequenceSwingEvent[];
+  /** [loadoutIdx][monsterIdx] = median kill tick for that monster in that loadout. */
+  sequenceMonsterKillTicks?: number[][];
 }
 
 /**

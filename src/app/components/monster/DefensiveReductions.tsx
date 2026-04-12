@@ -22,6 +22,7 @@ const DefensiveReductions: React.FC = observer(() => {
   const { isDefensiveReductionsExpanded } = store.ui;
   const { monster } = store;
   const { defenceReductions } = monster.inputs;
+  const seqActive = store.prefs.attackSequenceEnabled;
 
   const monsterJs = toJS(monster);
   const defenceFloor = useMemo(() => getDefenceFloor(monsterJs), [monsterJs]);
@@ -35,6 +36,7 @@ const DefensiveReductions: React.FC = observer(() => {
       >
         <div>
           Defensive Reductions
+          {seqActive && <span className="ml-2 text-xs font-normal italic">(managed by attack sequence)</span>}
         </div>
         <div className="relative top-[-2px]">
           {isDefensiveReductionsExpanded ? <IconChevronUp width={20} />
@@ -43,7 +45,7 @@ const DefensiveReductions: React.FC = observer(() => {
       </button>
 
       {isDefensiveReductionsExpanded && (
-        <div className="p-2">
+        <div className={`p-2${seqActive ? ' opacity-50 pointer-events-none' : ''}`}>
           {defenceFloor !== 0 && (
             <p className="text-xs mb-2 text-gray-300">
               Defence floor:

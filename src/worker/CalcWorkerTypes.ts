@@ -1,6 +1,6 @@
 import { Player } from '@/types/Player';
 import { Monster } from '@/types/Monster';
-import { AttackSequenceLoadout, NPCVsPlayerCalculatedLoadout, PlayerVsNPCCalculatedLoadout } from '@/types/State';
+import { AttackSequenceStep, NPCVsPlayerCalculatedLoadout, PlayerVsNPCCalculatedLoadout, SequenceSwingEvent } from '@/types/State';
 import { CalcOpts } from '@/lib/BaseCalc';
 import {
   CompareResult, CompareXAxis, CompareYAxis,
@@ -69,11 +69,23 @@ export interface TtkRequestParallel extends WorkerRequest<WorkerRequestType.COMP
   data: TtkRequest['data']
 }
 
+/** One monster slot as resolved by state.tsx before being sent to the worker. */
+export interface SequenceWorkerMonster {
+  monster: Monster;
+  /** [playerIdx] = steps for that player against this monster. */
+  playerSteps: AttackSequenceStep[][];
+}
+
+/** One sequence loadout as resolved for the worker (monster IDs replaced with full Monster objects). */
+export interface SequenceWorkerLoadout {
+  name: string;
+  monsters: SequenceWorkerMonster[];
+}
+
 export interface SequenceTtkRequest extends WorkerRequest<WorkerRequestType.COMPUTE_SEQUENCE_TTK> {
   data: {
-    sequenceLoadouts: AttackSequenceLoadout[],
-    loadouts: Player[],
-    monster: Monster,
+    sequenceLoadouts: SequenceWorkerLoadout[];
+    loadouts: Player[];
   }
 }
 
@@ -117,7 +129,12 @@ export interface TtkResponseParallel extends WorkerResponse<WorkerRequestType.CO
 }
 
 export interface SequenceTtkResponse extends WorkerResponse<WorkerRequestType.COMPUTE_SEQUENCE_TTK> {
-  payload: Map<number, number>[],
+  payload: {
+    dists: Map<number, number>[],
+    debugTrace: SequenceSwingEvent[],
+    /** [loadoutIdx][monsterIdx] = median kill tick for that monster. */
+    monsterKillTicks: number[][],
+  },
 }
 
 export type CalcResponsesUnion =

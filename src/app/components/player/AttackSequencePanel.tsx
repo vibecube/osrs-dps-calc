@@ -6,9 +6,13 @@ import { toJS } from 'mobx';
 import { useStore } from '@/state';
 import NumberInput from '@/app/components/generic/NumberInput';
 import Toggle from '@/app/components/generic/Toggle';
-import { AttackSequenceLoadout, AttackSequenceStep, SequenceStepCondition } from '@/types/State';
+import {
+  AttackSequenceLoadout, AttackSequenceStep, SequenceMonster, SequenceStepCondition,
+} from '@/types/State';
 import { INFINITE_HEALTH_MONSTERS, SECONDS_PER_TICK, BLOWPIPE_IDS } from '@/lib/constants';
-import { IconGripVertical, IconPlus, IconSwords, IconTrash } from '@tabler/icons-react';
+import {
+  IconGripVertical, IconPlus, IconSwords, IconTrash,
+} from '@tabler/icons-react';
 import skullKillImg from '@/public/img/misc/skull_kill.png';
 import hitpointsImg from '@/public/img/bonuses/hitpoints.png';
 import specialOnImg from '@/public/img/special.png';
@@ -27,10 +31,13 @@ import { getCdnImage, isDefined } from '@/utils';
 import Combobox from '@/app/components/generic/Combobox';
 import LazyImage from '@/app/components/generic/LazyImage';
 import { cross } from 'd3-array';
+import { CUSTOM_MONSTER_BASE } from '@/lib/Monsters';
+import { Monster } from '@/types/Monster';
 
 const MAX_STEPS = 10;
 const MAX_PLAYERS = 8;
 const MAX_SEQUENCE_LOADOUTS = 6;
+const MAX_MONSTERS = 6;
 
 type ConditionType = SequenceStepCondition['type'];
 
@@ -52,7 +59,7 @@ function roundToTick(seconds: number): number {
   return Math.max(0, ticks) * SECONDS_PER_TICK;
 }
 
-// ---- Weapon option types (mirroring EquipmentSelect) ----
+// ---- Weapon option types ----
 interface WeaponOption {
   label: string;
   value: string;
@@ -157,7 +164,7 @@ function buildWeaponOptions(monsterId: number): WeaponOption[] {
   return gauntletSort(entries);
 }
 
-// ---- Weapon picker (inline search, shown below a step when active) ----
+// ---- Weapon picker ----
 interface WeaponPickerProps {
   monsterId: number;
   currentOverride: EquipmentPiece | null | undefined;
@@ -242,16 +249,25 @@ const WeaponPicker: React.FC<WeaponPickerProps> = ({
   );
 };
 
+// ---- Monster option for inline search ----
+interface MonsterOption {
+  label: string;
+  value: number; // monster id
+  version: string;
+  monster: Omit<Monster, 'inputs'>;
+}
+
 // ---- Step list sub-component ----
 interface StepListProps {
   sequence: AttackSequenceStep[];
   loadouts: ReturnType<typeof useStore>['loadouts'];
-  monster: ReturnType<typeof useStore>['monster'];
+  monsterHp: number;
+  monsterId: number;
   onUpdateSequence: (seq: AttackSequenceStep[]) => void;
 }
 
 const StepList: React.FC<StepListProps> = observer(({
-  sequence, loadouts, monster, onUpdateSequence,
+  sequence, loadouts, monsterHp, monsterId, onUpdateSequence,
 }) => {
   const [weaponPickerStep, setWeaponPickerStep] = useState<number | null>(null);
   const dragIndex = useRef<number | null>(null);
@@ -278,7 +294,7 @@ const StepList: React.FC<StepListProps> = observer(({
   const updateConditionType = (index: number, type: ConditionType) => {
     let condition: SequenceStepCondition;
     if (type === 'attacks') condition = { type: 'attacks', count: 1 };
-    else if (type === 'hp_threshold') condition = { type: 'hp_threshold', hp: Math.floor(monster.skills.hp / 2) };
+    else if (type === 'hp_threshold') condition = { type: 'hp_threshold', hp: Math.floor(monsterHp / 2) };
     else condition = { type: 'kill' };
     updateStep(index, { condition });
   };
@@ -426,7 +442,7 @@ const StepList: React.FC<StepListProps> = observer(({
                 <NumberInput
                   className="form-control w-14 text-xs py-0.5"
                   min={0}
-                  max={monster.skills.hp}
+                  max={monsterHp}
                   value={(step.condition as { type: 'hp_threshold'; hp: number }).hp}
                   onChange={(v) => updateStep(i, { condition: { type: 'hp_threshold', hp: v } })}
                 />
@@ -462,7 +478,7 @@ const StepList: React.FC<StepListProps> = observer(({
 
             {isPickerOpen && (
               <WeaponPicker
-                monsterId={monster.id}
+                monsterId={monsterId}
                 currentOverride={overrideWeapon}
                 onSelect={(weapon) => {
                   updateStep(i, { weaponOverride: weapon });
@@ -481,6 +497,142 @@ const StepList: React.FC<StepListProps> = observer(({
   );
 });
 
+// ---- Monster section header ----
+interface MonsterSectionProps {
+  monsterIdx: number;
+  sequenceMonster: SequenceMonster;
+  resolvedMonster: Omit<Monster, 'inputs'> | undefined;
+  monsterOptions: MonsterOption[];
+  canRemove: boolean;
+  canAdd: boolean;
+  onChangeMonster: (monsterId: number) => void;
+  onChangeStartingHp: (hp: number | undefined) => void;
+  onAdd: () => void;
+  onRemove: () => void;
+}
+
+const MonsterSection: React.FC<MonsterSectionProps> = ({
+  monsterIdx,
+  sequenceMonster,
+  resolvedMonster,
+  monsterOptions,
+  canRemove,
+  canAdd,
+  onChangeMonster,
+  onChangeStartingHp,
+  onAdd,
+  onRemove,
+}) => {
+  const [hpOpen, setHpOpen] = useState(false);
+  const maxHp = resolvedMonster?.skills.hp ?? 1000;
+  const currentHp = sequenceMonster.startingHp ?? maxHp;
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap mb-1">
+      {/* Monster number badge */}
+      <span className="text-xs font-bold text-gray-400 shrink-0">
+        {`M${monsterIdx + 1}`}
+      </span>
+
+      {/* Monster search */}
+      <div className="flex-1 min-w-0">
+        <Combobox<MonsterOption>
+          id={`seq-monster-select-${monsterIdx}`}
+          className="w-full"
+          items={monsterOptions}
+          value={resolvedMonster ? `${resolvedMonster.name}${resolvedMonster.version ? ` #${resolvedMonster.version}` : ''}` : ''}
+          placeholder="Search for monster..."
+          resetAfterSelect={false}
+          blurAfterSelect
+          customFilter={(items, iv) => {
+            if (!iv) return items;
+            return items.filter((item) => item.value !== -1);
+          }}
+          onSelectedItemChange={(item) => {
+            if (item && item.value !== -1) onChangeMonster(item.value);
+          }}
+          CustomItemComponent={({ item }) => {
+            if (item.value === -1) return null;
+            return (
+              <div>
+                {item.label}
+                {item.version && (
+                  <span className="text-xs text-gray-400 dark:text-gray-300">#{item.version}</span>
+                )}
+              </div>
+            );
+          }}
+        />
+      </div>
+
+      {/* HP override button */}
+      <div className="relative">
+        <button
+          type="button"
+          className={`shrink-0 flex items-center justify-center w-[26px] h-[26px] rounded border transition-colors ${
+            sequenceMonster.startingHp !== undefined
+              ? 'border-orange-400 bg-orange-400/10 hover:bg-orange-400/20'
+              : 'border-body-400 dark:border-dark-300 hover:border-gray-400 dark:hover:border-gray-500 bg-body-100 dark:bg-dark-400'
+          } ${hpOpen ? 'ring-1 ring-orange-400' : ''}`}
+          onClick={() => setHpOpen((o) => !o)}
+          title={sequenceMonster.startingHp !== undefined ? `Starting HP: ${sequenceMonster.startingHp}` : 'Click to override starting HP'}
+          aria-label="Toggle HP override"
+        >
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={hitpointsImg.src} alt="HP" className="w-[14px] h-[14px]" />
+          {sequenceMonster.startingHp !== undefined && (
+            <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-orange-400" />
+          )}
+        </button>
+        {hpOpen && (
+          <div className="absolute right-0 top-8 z-10 bg-white dark:bg-dark-400 border border-body-300 dark:border-dark-300 rounded shadow-lg p-2 flex items-center gap-2 min-w-[140px]">
+            <span className="text-xs text-gray-400 shrink-0">Start HP</span>
+            <NumberInput
+              className="form-control w-16 text-xs py-0.5"
+              min={1}
+              max={maxHp}
+              value={currentHp}
+              onChange={(v) => onChangeStartingHp(v >= maxHp ? undefined : v)}
+            />
+            {sequenceMonster.startingHp !== undefined && (
+              <button
+                type="button"
+                className="text-xs text-gray-400 hover:text-red-400 shrink-0"
+                onClick={() => { onChangeStartingHp(undefined); setHpOpen(false); }}
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+
+      {canRemove && (
+        <button
+          type="button"
+          className="shrink-0 text-gray-400 hover:text-red-400 transition-colors"
+          onClick={onRemove}
+          aria-label={`Remove monster ${monsterIdx + 1}`}
+        >
+          <IconTrash size={14} />
+        </button>
+      )}
+
+      {canAdd && (
+        <button
+          type="button"
+          className="shrink-0 flex items-center justify-center w-[26px] h-[26px] rounded border border-body-300 dark:border-dark-300 text-gray-400 hover:text-white hover:border-gray-400 dark:hover:border-gray-500 bg-body-100 dark:bg-dark-400 transition-colors"
+          onClick={onAdd}
+          aria-label="Add monster"
+          title="Add next monster"
+        >
+          <IconPlus size={13} />
+        </button>
+      )}
+    </div>
+  );
+};
+
 // ---- Main panel ----
 const AttackSequencePanel: React.FC = observer(() => {
   const store = useStore();
@@ -492,8 +644,8 @@ const AttackSequencePanel: React.FC = observer(() => {
     attackSequenceActiveLoadout,
     attackSequenceTargetTtkSeconds: targetTtkSeconds,
   } = prefs;
-  const isInfiniteHealth = INFINITE_HEALTH_MONSTERS.includes(monster.id);
 
+  const isInfiniteHealth = INFINITE_HEALTH_MONSTERS.includes(monster.id);
   const sequenceTtkDists = toJS(store.calc.sequenceTtkDists);
 
   const [targetInput, setTargetInput] = useState<string>(() => parseFloat(targetTtkSeconds.toFixed(10)).toString());
@@ -501,9 +653,25 @@ const AttackSequencePanel: React.FC = observer(() => {
   const [editingName, setEditingName] = useState<string>('');
 
   const activeLoadoutIdx = Math.min(attackSequenceActiveLoadout, attackSequenceLoadouts.length - 1);
-  const activeLoadout: AttackSequenceLoadout = attackSequenceLoadouts[activeLoadoutIdx] ?? { name: 'Sequence 1', players: [[]], activePlayer: 0 };
-  const activePlayerIdx = Math.min(activeLoadout.activePlayer, activeLoadout.players.length - 1);
-  const sequence = activeLoadout.players[activePlayerIdx] ?? [];
+  const activeLoadout: AttackSequenceLoadout = attackSequenceLoadouts[activeLoadoutIdx] ?? {
+    name: 'Sequence 1',
+    monsters: [{ monsterId: monster.id }],
+    playerSteps: [[[]]],
+    activePlayer: 0,
+    activeMonster: 0,
+  };
+  const activePlayerIdx = Math.min(activeLoadout.activePlayer, (activeLoadout.playerSteps?.length ?? 1) - 1);
+  const playerSteps = activeLoadout.playerSteps ?? [[[]]];
+
+  // Monster options for the inline combobox
+  const monsterOptions: MonsterOption[] = useMemo(() => [
+    ...store.availableMonsters.map((m) => ({
+      label: m.name,
+      value: m.id,
+      version: m.version || '',
+      monster: m,
+    })),
+  ], [store.availableMonsters]);
 
   const commitTarget = (raw: string) => {
     const parsed = parseFloat(raw);
@@ -514,11 +682,10 @@ const AttackSequencePanel: React.FC = observer(() => {
   };
 
   const hasKillStep = useMemo(
-    () => attackSequenceLoadouts.some((sl) => sl.players.some((seq) => seq.some((s) => s.condition.type === 'kill'))),
+    () => attackSequenceLoadouts.some((sl) => sl.playerSteps?.flat(2).some((s) => s.condition.type === 'kill')),
     [attackSequenceLoadouts],
   );
 
-  // % chance for the active sequence loadout only
   const chanceWithinTarget = useMemo(() => {
     const dist = sequenceTtkDists?.[activeLoadoutIdx];
     if (!dist || dist.size === 0) return null;
@@ -538,10 +705,16 @@ const AttackSequencePanel: React.FC = observer(() => {
 
   const addSequenceLoadout = () => {
     if (attackSequenceLoadouts.length >= MAX_SEQUENCE_LOADOUTS) return;
-    const newLoadouts: AttackSequenceLoadout[] = [
-      ...attackSequenceLoadouts,
-      { name: `Sequence ${attackSequenceLoadouts.length + 1}`, players: [[]], activePlayer: 0 },
-    ];
+    // Copy monsters from the active loadout but start with empty steps.
+    const srcMonsters = activeLoadout.monsters ?? [{ monsterId: monster.id }];
+    const newLoadout: AttackSequenceLoadout = {
+      name: `Sequence ${attackSequenceLoadouts.length + 1}`,
+      monsters: srcMonsters.map((m) => ({ ...m })),
+      playerSteps: [srcMonsters.map(() => [])],
+      activePlayer: 0,
+      activeMonster: 0,
+    };
+    const newLoadouts = [...attackSequenceLoadouts, newLoadout];
     store.updatePreferences({ attackSequenceLoadouts: newLoadouts, attackSequenceActiveLoadout: newLoadouts.length - 1 });
   };
 
@@ -566,28 +739,52 @@ const AttackSequencePanel: React.FC = observer(() => {
   };
 
   // --- Player helpers ---
-  const updatePlayerSequence = (playerIdx: number, newSeq: AttackSequenceStep[]) => {
-    const newPlayers = activeLoadout.players.map((seq, i) => (i === playerIdx ? newSeq : seq));
-    updateActiveLoadout({ players: newPlayers });
-  };
-
-  const addStep = () => {
-    if (sequence.length >= MAX_STEPS) return;
-    updatePlayerSequence(activePlayerIdx, [...sequence, defaultStep(0)]);
+  const updatePlayerMonsterSteps = (playerIdx: number, monsterIdx: number, newSeq: AttackSequenceStep[]) => {
+    const newPlayerSteps = playerSteps.map((seqs, pi) => (pi === playerIdx
+      ? seqs.map((s, mi) => (mi === monsterIdx ? newSeq : s))
+      : seqs));
+    updateActiveLoadout({ playerSteps: newPlayerSteps });
   };
 
   const addPlayer = () => {
-    if (activeLoadout.players.length >= MAX_PLAYERS) return;
-    const newPlayers = [...activeLoadout.players, []];
-    updateActiveLoadout({ players: newPlayers, activePlayer: newPlayers.length - 1 });
+    if (playerSteps.length >= MAX_PLAYERS) return;
+    const monsterCount = activeLoadout.monsters?.length ?? 1;
+    const newPlayerSteps = [...playerSteps, Array.from({ length: monsterCount }, () => [] as AttackSequenceStep[])];
+    updateActiveLoadout({ playerSteps: newPlayerSteps, activePlayer: newPlayerSteps.length - 1 });
   };
 
   const removePlayer = (playerIdx: number) => {
-    if (activeLoadout.players.length <= 1) return;
-    const newPlayers = activeLoadout.players.filter((_, i) => i !== playerIdx);
-    const newActive = Math.min(activeLoadout.activePlayer, newPlayers.length - 1);
-    updateActiveLoadout({ players: newPlayers, activePlayer: newActive });
+    if (playerSteps.length <= 1) return;
+    const newPlayerSteps = playerSteps.filter((_, i) => i !== playerIdx);
+    const newActive = Math.min(activeLoadout.activePlayer, newPlayerSteps.length - 1);
+    updateActiveLoadout({ playerSteps: newPlayerSteps, activePlayer: newActive });
   };
+
+  // --- Monster helpers ---
+  const addMonster = () => {
+    const currentMonsters = activeLoadout.monsters ?? [{ monsterId: monster.id }];
+    if (currentMonsters.length >= MAX_MONSTERS) return;
+    const newMonsters = [...currentMonsters, { monsterId: monster.id }];
+    const newPlayerSteps = playerSteps.map((seqs) => [...seqs, []]);
+    updateActiveLoadout({ monsters: newMonsters, playerSteps: newPlayerSteps });
+  };
+
+  const removeMonster = (monsterIdx: number) => {
+    const currentMonsters = activeLoadout.monsters ?? [];
+    if (currentMonsters.length <= 1) return;
+    const newMonsters = currentMonsters.filter((_, i) => i !== monsterIdx);
+    const newPlayerSteps = playerSteps.map((seqs) => seqs.filter((_, i) => i !== monsterIdx));
+    const newActiveMonster = Math.min(activeLoadout.activeMonster ?? 0, newMonsters.length - 1);
+    updateActiveLoadout({ monsters: newMonsters, playerSteps: newPlayerSteps, activeMonster: newActiveMonster });
+  };
+
+  const updateMonsterInLoadout = (monsterIdx: number, patch: Partial<SequenceMonster>) => {
+    const currentMonsters = activeLoadout.monsters ?? [];
+    const newMonsters = currentMonsters.map((m, i) => (i === monsterIdx ? { ...m, ...patch } : m));
+    updateActiveLoadout({ monsters: newMonsters });
+  };
+
+  const monsters = activeLoadout.monsters ?? [{ monsterId: monster.id }];
 
   return (
     <div className="px-6 my-4 flex flex-col gap-3">
@@ -625,7 +822,7 @@ const AttackSequencePanel: React.FC = observer(() => {
               <span className="text-xs text-gray-400">s</span>
             </div>
             {isInfiniteHealth && <span className="text-xs text-gray-400">Monster has infinite health.</span>}
-            {!isInfiniteHealth && !hasKillStep && attackSequenceLoadouts.some((sl) => sl.players.some((s) => s.length > 0)) && (
+            {!isInfiniteHealth && !hasKillStep && attackSequenceLoadouts.some((sl) => sl.playerSteps?.flat(2).length > 0) && (
               <span className="text-xs text-yellow-500 dark:text-yellow-400">
                 Add an &quot;Until killed&quot; step to see % chance.
               </span>
@@ -646,6 +843,7 @@ const AttackSequencePanel: React.FC = observer(() => {
           {/* Sequence loadout tabs */}
           <div className="flex items-center gap-1 flex-wrap border-b border-body-400 dark:border-dark-200 pb-2">
             {attackSequenceLoadouts.map((sl, si) => (
+              // eslint-disable-next-line react/no-array-index-key
               <div key={si} className="relative group">
                 {editingLoadoutIdx === si ? (
                   <input
@@ -663,12 +861,13 @@ const AttackSequencePanel: React.FC = observer(() => {
                     type="button"
                     onClick={() => store.updatePreferences({ attackSequenceActiveLoadout: si })}
                     onDoubleClick={() => startEditingName(si)}
+                    onContextMenu={(e) => { e.preventDefault(); startEditingName(si); }}
                     className={`flex items-center justify-center h-[26px] px-2 rounded text-xs font-bold transition-colors max-w-[96px] truncate ${
                       si === activeLoadoutIdx
                         ? 'bg-orange-500 dark:bg-orange-600 text-white'
                         : 'bg-body-100 dark:bg-dark-400 border border-body-300 dark:border-dark-300 text-gray-400 hover:text-white hover:border-gray-400 dark:hover:border-gray-500'
                     }`}
-                    title={`${sl.name} (double-click to rename)`}
+                    title={`${sl.name} (double-click or right-click to rename)`}
                   >
                     {sl.name}
                   </button>
@@ -699,7 +898,8 @@ const AttackSequencePanel: React.FC = observer(() => {
 
           {/* Player tabs */}
           <div className="flex items-center gap-1 flex-wrap">
-            {activeLoadout.players.map((_, pi) => (
+            {playerSteps.map((_, pi) => (
+              // eslint-disable-next-line react/no-array-index-key
               <div key={pi} className="relative group">
                 <button
                   type="button"
@@ -712,7 +912,7 @@ const AttackSequencePanel: React.FC = observer(() => {
                 >
                   {`P${pi + 1}`}
                 </button>
-                {activeLoadout.players.length > 1 && (
+                {playerSteps.length > 1 && (
                   <button
                     type="button"
                     onClick={() => removePlayer(pi)}
@@ -724,7 +924,7 @@ const AttackSequencePanel: React.FC = observer(() => {
                 )}
               </div>
             ))}
-            {activeLoadout.players.length < MAX_PLAYERS && (
+            {playerSteps.length < MAX_PLAYERS && (
               <button
                 type="button"
                 onClick={addPlayer}
@@ -736,26 +936,51 @@ const AttackSequencePanel: React.FC = observer(() => {
             )}
           </div>
 
-          {/* Step list for active player */}
-          <StepList
-            sequence={sequence}
-            loadouts={loadouts}
-            monster={monster}
-            onUpdateSequence={(newSeq) => updatePlayerSequence(activePlayerIdx, newSeq)}
-          />
+          {/* Per-monster sections */}
+          {monsters.map((sm, mi) => {
+            const resolvedBase = store.availableMonsters.find((m) => m.id === sm.monsterId);
+            const resolvedHp = resolvedBase?.skills.hp ?? 1000;
+            const seq = playerSteps[activePlayerIdx]?.[mi] ?? [];
+            const isLast = mi === monsters.length - 1;
 
-          {/* Footer */}
-          <div className="flex justify-end pt-1 border-t border-body-400 dark:border-dark-200">
-            <button
-              type="button"
-              className="form-control flex items-center gap-1 text-xs py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
-              onClick={addStep}
-              disabled={sequence.length >= MAX_STEPS}
-            >
-              <IconPlus size={13} />
-              Add step
-            </button>
-          </div>
+            return (
+              // eslint-disable-next-line react/no-array-index-key
+              <div key={mi} className="flex flex-col gap-2 border border-body-400 dark:border-dark-200 rounded p-2">
+                <MonsterSection
+                  monsterIdx={mi}
+                  sequenceMonster={sm}
+                  resolvedMonster={resolvedBase}
+                  monsterOptions={monsterOptions}
+                  canRemove={monsters.length > 1}
+                  canAdd={isLast && monsters.length < MAX_MONSTERS}
+                  onChangeMonster={(id) => updateMonsterInLoadout(mi, { monsterId: id, startingHp: undefined })}
+                  onChangeStartingHp={(hp) => updateMonsterInLoadout(mi, { startingHp: hp })}
+                  onAdd={addMonster}
+                  onRemove={() => removeMonster(mi)}
+                />
+
+                <StepList
+                  sequence={seq}
+                  loadouts={loadouts}
+                  monsterHp={resolvedHp}
+                  monsterId={sm.monsterId}
+                  onUpdateSequence={(newSeq) => updatePlayerMonsterSteps(activePlayerIdx, mi, newSeq)}
+                />
+
+                <div className="flex justify-end pt-1 border-t border-body-400 dark:border-dark-200">
+                  <button
+                    type="button"
+                    className="form-control flex items-center gap-1 text-xs py-0.5 disabled:opacity-50 disabled:cursor-not-allowed"
+                    onClick={() => updatePlayerMonsterSteps(activePlayerIdx, mi, [...seq, defaultStep(0)])}
+                    disabled={seq.length >= MAX_STEPS}
+                  >
+                    <IconPlus size={13} />
+                    Add step
+                  </button>
+                </div>
+              </div>
+            );
+          })}
         </>
       )}
     </div>

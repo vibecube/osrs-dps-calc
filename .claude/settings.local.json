@@ -15,7 +15,16 @@
       "Bash(cmd.exe /c \"cd C:\\\\Users\\\\Ryan\\\\osrs-dps-calc && node node_modules/.bin/tsc --noEmit 2>&1\")",
       "Bash(cmd.exe /c \"cd C:\\\\Users\\\\Ryan\\\\osrs-dps-calc && node node_modules/.bin/tsc --noEmit > tsc_output.txt 2>&1 && echo SUCCESS || echo FAILED\")",
       "Bash(/c/Program Files/nodejs/node.exe node_modules/.bin/tsc --noEmit)",
-      "Bash(/c/Program Files/nodejs/node.exe /c/Users/Ryan/osrs-dps-calc/node_modules/typescript/bin/tsc --noEmit)"
+      "Bash(/c/Program Files/nodejs/node.exe /c/Users/Ryan/osrs-dps-calc/node_modules/typescript/bin/tsc --noEmit)",
+      "Bash(\"/c/Program Files/nodejs/node.exe\" node_modules/typescript/bin/tsc --noEmit)",
+      "Bash(grep -r \"PORT\\\\|port\" /c/Users/Ryan/osrs-dps-calc --include=*.js --include=*.ts --include=*.json --exclude-dir=node_modules -l)",
+      "mcp__Claude_Preview__preview_start",
+      "Bash(cp \"C:/Users/Ryan/Pictures/special.png\" \"C:/Users/Ryan/osrs-dps-calc/src/public/img/special.png\")",
+      "Bash(cp \"C:/Users/Ryan/Pictures/specialOff.png\" \"C:/Users/Ryan/osrs-dps-calc/src/public/img/specialOff.png\")",
+      "Bash(node -e \"const t = require\\('@tabler/icons-react'\\); console.log\\(Object.keys\\(t\\).filter\\(k => k.includes\\('Grip'\\)\\).join\\(', '\\)\\)\")",
+      "Bash(node -e \"const t = require\\('@tabler/icons-react'\\); console.log\\(Object.keys\\(t\\).filter\\(k => k.match\\(/Skull|Sword|Heart|Hp|Health/i\\)\\).join\\(', '\\)\\)\")",
+      "Bash(grep -n \"calculateEquipmentBonusesFromGear\" C:/Users/Ryan/osrs-dps-calc/src/state.tsx C:/Users/Ryan/osrs-dps-calc/src/lib/*.ts)",
+      "Bash(grep -E \"\\\\.\\(tsx?|js\\)$\")"
     ]
   }
 }

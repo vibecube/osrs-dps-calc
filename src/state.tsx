@@ -7,12 +7,15 @@ import React, { createContext, useContext } from 'react';
 import { PartialDeep } from 'type-fest';
 import * as localforage from 'localforage';
 import {
+  AttackSequenceLoadout,
+  AttackSequenceStep,
   CalculatedLoadout,
   Calculator,
   IMPORT_VERSION,
   ImportableData,
   PlayerVsNPCCalculatedLoadout,
   Preferences,
+  SequenceMonster,
   State,
   UI,
   UserIssue,
@@ -31,7 +34,7 @@ import {
   isDefined,
   PotionMap,
 } from '@/utils';
-import { ComputeBasicRequest, ComputeReverseRequest, WorkerRequestType } from '@/worker/CalcWorkerTypes';
+import { ComputeBasicRequest, ComputeReverseRequest, SequenceWorkerLoadout, WorkerRequestType } from '@/worker/CalcWorkerTypes';
 import { getMonsters, INITIAL_MONSTER_INPUTS } from '@/lib/Monsters';
 import { availableEquipment, calculateEquipmentBonusesFromGear } from '@/lib/Equipment';
 import { CalcWorker } from '@/worker/CalcWorker';
@@ -53,6 +56,45 @@ import Potion from './enums/Potion';
 import { startPollingForRuneLite, WikiSyncer } from './wikisync/WikiSyncer';
 
 const EMPTY_CALC_LOADOUT = {} as CalculatedLoadout;
+
+/**
+ * Migrates a legacy or partial AttackSequenceLoadout to the current shape.
+ * Safe to call on already-migrated data (playerSteps present → returns as-is).
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+function migrateSequenceLoadout(raw: any, fallbackMonsterId: number): AttackSequenceLoadout {
+  if (raw.playerSteps !== undefined) {
+    // Already new shape; ensure activeMonster exists.
+    return { activeMonster: 0, ...raw } as AttackSequenceLoadout;
+  }
+  // Legacy: players: AttackSequenceStep[][]
+  const legacyPlayers: unknown[][] = raw.players ?? [[]];
+  return {
+    name: raw.name ?? 'Sequence 1',
+    monsters: [{ monsterId: fallbackMonsterId }],
+    playerSteps: legacyPlayers.map((seq) => [seq as AttackSequenceStep[]]),
+    activePlayer: raw.activePlayer ?? 0,
+    activeMonster: 0,
+  };
+}
+
+/**
+ * Resolves a SequenceMonster to a full Monster object using the availableMonsters list.
+ * Falls back to the first available monster if the ID is not found.
+ */
+function resolveSequenceMonster(
+  sm: SequenceMonster,
+  availableMonsters: Omit<Monster, 'inputs'>[],
+): Monster {
+  const base = availableMonsters.find((m) => m.id === sm.monsterId) ?? availableMonsters[0];
+  return {
+    ...base,
+    inputs: {
+      ...INITIAL_MONSTER_INPUTS,
+      monsterCurrentHp: sm.startingHp ?? base.skills.hp,
+    },
+  };
+}
 
 const generateInitialEquipment = () => {
   const initialEquipment: PlayerEquipment = {
@@ -234,7 +276,13 @@ class GlobalState implements State {
     hitDistShowSpec: false,
     resultsExpanded: false,
     attackSequenceEnabled: false,
-    attackSequenceLoadouts: [{ name: 'Sequence 1', players: [[]], activePlayer: 0 }],
+    attackSequenceLoadouts: [{
+      name: 'Sequence 1',
+      monsters: [{ monsterId: -999 }], // placeholder; replaced on first load by migrateSequenceLoadouts
+      playerSteps: [[[]]],
+      activePlayer: 0,
+      activeMonster: 0,
+    }],
     attackSequenceActiveLoadout: 0,
     attackSequenceTargetTtkSeconds: 60,
     showSequenceTtkComparison: false,
@@ -446,6 +494,14 @@ class GlobalState implements State {
     this.calc.sequenceTtkDists = dists;
   }
 
+  updateCalcSequenceDebugTrace(trace: import('@/types/State').SequenceSwingEvent[] | undefined) {
+    this.calc.sequenceDebugTrace = trace;
+  }
+
+  updateCalcSequenceMonsterKillTicks(ticks: number[][] | undefined) {
+    this.calc.sequenceMonsterKillTicks = ticks;
+  }
+
   async loadShortlink(linkId: string) {
     let data: ImportableData;
 
@@ -564,7 +620,26 @@ class GlobalState implements State {
 
   loadPreferences() {
     localforage.getItem('dps-calc-prefs').then((v) => {
-      this.updatePreferences(v as PartialDeep<Preferences>);
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const prefs = v as any;
+      if (prefs?.attackSequenceLoadouts) {
+        const fallbackId = this.monster.id;
+        prefs.attackSequenceLoadouts = prefs.attackSequenceLoadouts.map(
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          (sl: any) => migrateSequenceLoadout(sl, fallbackId),
+        );
+      }
+      this.updatePreferences(prefs as PartialDeep<Preferences>);
+      // Fix up the default placeholder monster IDs now that we have the real monster.
+      const loadouts = this.prefs.attackSequenceLoadouts;
+      if (loadouts.some((sl) => sl.monsters.some((m) => m.monsterId === -999))) {
+        this.updatePreferences({
+          attackSequenceLoadouts: loadouts.map((sl) => ({
+            ...sl,
+            monsters: sl.monsters.map((m) => (m.monsterId === -999 ? { monsterId: this.monster.id } : m)),
+          })),
+        });
+      }
     }).catch((e) => {
       console.error(e);
       // TODO maybe some handling here
@@ -819,6 +894,8 @@ class GlobalState implements State {
     this.loadouts.forEach(() => calculatedLoadouts.push(EMPTY_CALC_LOADOUT));
     this.calc.loadouts = calculatedLoadouts;
     this.calc.sequenceTtkDists = undefined;
+    this.calc.sequenceDebugTrace = undefined;
+    this.calc.sequenceMonsterKillTicks = undefined;
 
     const data: Extract<ComputeBasicRequest['data'], ComputeReverseRequest['data']> = {
       loadouts: toJS(this.loadouts),
@@ -861,26 +938,35 @@ class GlobalState implements State {
       );
     }
 
-    const seqLoadouts = this.prefs.attackSequenceLoadouts;
-    const hasKillStep = seqLoadouts.some((sl) => sl.players.some((seq) => seq.some((s) => s.condition.type === 'kill')));
-    const hasAnyStep = seqLoadouts.some((sl) => sl.players.some((seq) => seq.length > 0));
+    const seqLoadouts = toJS(this.prefs.attackSequenceLoadouts);
+    const hasKillStep = seqLoadouts.some((sl) => sl.playerSteps?.flat(2).some((s) => s.condition.type === 'kill'));
+    const hasAnyStep = seqLoadouts.some((sl) => sl.playerSteps?.flat(2).length > 0);
     if (
       this.prefs.attackSequenceEnabled
       && hasAnyStep
       && hasKillStep
-      && !INFINITE_HEALTH_MONSTERS.includes(this.monster.id)
     ) {
       promises.push(
         (async () => {
+          // Resolve each SequenceMonster to a full Monster object before sending to the worker.
+          const workerLoadouts: SequenceWorkerLoadout[] = seqLoadouts.map((sl) => ({
+            name: sl.name,
+            monsters: sl.monsters.map((sm, mi) => ({
+              monster: resolveSequenceMonster(sm, this.availableMonsters),
+              playerSteps: (sl.playerSteps ?? []).map((playerSeqs) => playerSeqs[mi] ?? []),
+            })),
+          }));
+
           const resp = await this.calcWorker.do({
             type: WorkerRequestType.COMPUTE_SEQUENCE_TTK,
             data: {
-              sequenceLoadouts: toJS(seqLoadouts),
+              sequenceLoadouts: workerLoadouts,
               loadouts: toJS(this.loadouts),
-              monster: toJS(this.monster),
             },
           });
-          this.updateCalcSequenceTtkDists(resp.payload);
+          this.updateCalcSequenceTtkDists(resp.payload.dists);
+          this.updateCalcSequenceDebugTrace(resp.payload.debugTrace);
+          this.updateCalcSequenceMonsterKillTicks(resp.payload.monsterKillTicks);
         })(),
       );
     }
